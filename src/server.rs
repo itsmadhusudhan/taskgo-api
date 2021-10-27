@@ -13,9 +13,10 @@ pub async fn start_server() -> io::Result<()> {
         App::new()
             .data(pool.clone())
             .wrap(Logger::default())
-            .service(task_handler::get_all_tasks)
             .service(task_handler::create_task)
+            .service(task_handler::get_task_by_collection)
             .service(collection_handler::get_scope_service())
+            .service(task_handler::delete_task_by_id)
     })
     .bind("0.0.0.0:9090")?
     .run()

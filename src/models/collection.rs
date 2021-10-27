@@ -1,6 +1,6 @@
-use crate::schema::collections;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -23,9 +23,22 @@ impl Collection {
 }
 
 // the domain contract should remain intact so these conversion method is added here
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CollectionRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
 
-#[derive(Queryable, Insertable, Debug)]
-#[table_name = "collections"]
+impl CollectionRequest {
+    pub fn to_collection_db(&self) -> CollectionDB {
+        return CollectionDB::from_collection(&Collection::new(
+            self.name.to_string(),
+            self.description.clone(),
+        ));
+    }
+}
+
+#[derive(Debug, FromRow)]
 pub struct CollectionDB {
     pub id: Uuid,
     pub name: String,
@@ -51,4 +64,23 @@ impl CollectionDB {
             created_at: collection.created_at.naive_utc(),
         }
     }
+
+    pub fn from_request(request: &CollectionRequest) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: request.name.clone(),
+            description: request.description.clone(),
+            created_at: Utc::now().naive_utc(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CollectionSuccess {
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CollectionError {
+    pub message: String,
 }

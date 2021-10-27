@@ -1,27 +1,67 @@
 use crate::constants::{APPLICATION_JSON, CONNECTION_POOL_ERROR};
-use crate::db::db::{DBPool, DBPooledConnection};
-use crate::models::task::{Task, TaskDB};
+use crate::models::task::{
+    GetTaskError, Task, TaskCreationRequest, TaskDB, TaskError, TaskResponse, TaskSuccess,
+};
+
+use uuid::Uuid;
 
 use actix_web::{
-    get, post,
+    delete, get, post, web,
     web::{Data, Json},
-    HttpResponse,
+    HttpRequest, HttpResponse,
 };
-use diesel::{query_dsl::methods::OrderDsl, Connection, ExpressionMethods, RunQueryDsl};
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgDone;
+use sqlx::{Error, PgPool, Row};
 
-#[get("/tasks")]
-pub async fn get_all_tasks(pool: Data<DBPool>) -> HttpResponse {
-    use crate::schema::tasks::dsl::*;
+#[post("/tasks")]
+pub async fn create_task(request: Json<TaskCreationRequest>, pool: Data<PgPool>) -> HttpResponse {
+    let task = TaskDB::from_request(&request);
 
-    let conn: DBPooledConnection = pool.get().expect(CONNECTION_POOL_ERROR);
+    let result: Result<PgDone,Error> = sqlx::query_as!(
+        task,
+        r#"INSERT INTO tasks (id,name,created_at,collection_id) VALUES((SELECT id from collections WHERE id=$1),$2,$3,$4)"#,
+        &task.collection_id,
+        &task.name,
+        &task.created_at,
+        &task.collection_id,
+    )
+    .execute(pool.get_ref())
+    .await;
 
-    let results = match tasks.order(created_at.desc()).load::<TaskDB>(&conn) {
-        Ok(tsks) => tsks,
-        Err(_) => vec![],
+    return match result {
+        Ok(_) => TaskResponse::success(String::from("Created Successfully")),
+        Err(err) => {
+            TaskResponse::internal_server_error(err.into_database_error().unwrap().to_string())
+        }
+    };
+}
+
+// NOTE: change the url
+#[get("/tasks/{collection_id}")]
+pub async fn get_task_by_collection(req: HttpRequest, pool: Data<PgPool>) -> HttpResponse {
+    let id = match req.match_info().query("collection_id").parse::<String>() {
+        Ok(id) => id,
+        Err(err) => {
+            return TaskResponse::parse_error(err.to_string());
+        }
     };
 
-    println!("Displaying {:?} tasks", results);
+    let collection_id = match Uuid::parse_str(&id) {
+        Ok(id) => id,
+        Err(err) => {
+            return TaskResponse::parse_error(err.to_string());
+        }
+    };
+
+    let results = sqlx::query_as!(
+        TaskDB,
+        "SELECT * from tasks where collection_id= $1",
+        collection_id
+    )
+    .fetch_all(pool.get_ref())
+    .await
+    .unwrap();
 
     return HttpResponse::Ok().content_type(APPLICATION_JSON).json(
         results
@@ -31,31 +71,19 @@ pub async fn get_all_tasks(pool: Data<DBPool>) -> HttpResponse {
     );
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TaskCreationRequest {
-    pub name: String,
-    pub collectionId: String,
-}
+#[delete("/tasks/{task_id}")]
+pub async fn delete_task_by_id(req: HttpRequest, pool: Data<PgPool>) -> HttpResponse {
+    let id = req.match_info().query("task_id").parse::<String>().unwrap();
 
-impl TaskCreationRequest {
-    pub fn to_task(&self) -> Task {
-        return Task::new(self.name.to_string(), self.collectionId.to_string());
-    }
-}
+    let result = sqlx::query("DELETE FROM tasks where id = $1")
+        .bind(&Uuid::parse_str(&id).unwrap())
+        .execute(pool.get_ref())
+        .await;
 
-#[post("/tasks")]
-pub async fn create_task(request: Json<TaskCreationRequest>, pool: Data<DBPool>) -> HttpResponse {
-    println!("{:?}", request.to_task());
-
-    use crate::schema::tasks::dsl::*;
-
-    let task_db = TaskDB::from_task(&request.to_task());
-
-    let conn: DBPooledConnection = pool.get().expect(CONNECTION_POOL_ERROR);
-
-    let _ = diesel::insert_into(tasks).values(&task_db).execute(&conn);
-
-    return HttpResponse::Created()
-        .content_type(APPLICATION_JSON)
-        .json(request.to_task());
+    return match result {
+        Ok(_) => TaskResponse::success(String::from("Deleted Successfully")),
+        Err(err) => {
+            TaskResponse::internal_server_error(err.into_database_error().unwrap().to_string())
+        }
+    };
 }

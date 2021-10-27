@@ -1,10 +1,7 @@
-#[macro_use]
-extern crate diesel;
-
+#![allow(unused)]
 mod constants;
 mod db;
 mod models;
-mod schema;
 mod server;
 mod transport;
 
@@ -30,3 +27,12 @@ async fn main() -> io::Result<()> {
     // start the server
     return server::start_server().await;
 }
+
+// resources
+/***
+https://morioh.com/p/07e06337debe
+https://mattgathu.github.io/2020/04/16/actix-web-error-handling.html
+https://github.com/steadylearner/Rust-Full-Stack/blob/master/actix/actix_examples/error_handling/
+https://github.com/PacktPublishing/Creative-Projects-for-Rust-Programmers
+https://github.com/erikgrinaker/toydb
+ */
